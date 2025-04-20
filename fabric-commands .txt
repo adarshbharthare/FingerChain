@@ -1,0 +1,56 @@
+#!/bin/bash
+# Navigate to Fabric test network
+cd ~/fabric-samples/test-network
+
+# Clean up any existing network
+./network.sh down
+
+# Start network and create channel
+./network.sh up createChannel -c mychannel
+
+# Package chaincode
+export PATH=${PWD}/../bin:$PATH
+export FABRIC_CFG_PATH=$PWD/../config/
+peer lifecycle chaincode package fingerchain.tar.gz --path ~/FingerChain/chaincode --lang go --label fingerchain_1.0
+
+# Install chaincode on Org1
+export CORE_PEER_LOCALMSPID="Org1MSP"
+export CORE_PEER_TLS_ENABLED=true
+export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/organizations/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem
+export CORE_PEER_MSPCONFIGPATH=$PWD/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
+export CORE_PEER_ADDRESS=localhost:7051
+peer lifecycle chaincode install fingerchain.tar.gz
+
+# Install chaincode on Org2
+export CORE_PEER_LOCALMSPID="Org2MSP"
+export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/organizations/peerOrganizations/org2.example.com/tlsca/tlsca.org2.example.com-cert.pem
+export CORE_PEER_MSPCONFIGPATH=$PWD/organizations/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp
+export CORE_PEER_ADDRESS=localhost:9051
+peer lifecycle chaincode install fingerchain.tar.gz
+
+# Query installed chaincode to get package ID (example ID, prof will get their own)
+peer lifecycle chaincode queryinstalled >&log.txt
+PACKAGE_ID=$(sed -n "/fingerchain_1.0/{s/^.*: //p;}" log.txt)
+
+# Approve chaincode for Org1
+export CORE_PEER_LOCALMSPID="Org1MSP"
+export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/organizations/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem
+export CORE_PEER_MSPCONFIGPATH=$PWD/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
+export CORE_PEER_ADDRESS=localhost:7051
+peer lifecycle chaincode approveformyorg -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $PWD/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name fingerchain --version 1.0 --package-id $PACKAGE_ID --sequence 3
+
+# Approve chaincode for Org2
+export CORE_PEER_LOCALMSPID="Org2MSP"
+export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/organizations/peerOrganizations/org2.example.com/tlsca/tlsca.org2.example.com-cert.pem
+export CORE_PEER_MSPCONFIGPATH=$PWD/organizations/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp
+export CORE_PEER_ADDRESS=localhost:9051
+peer lifecycle chaincode approveformyorg -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $PWD/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name fingerchain --version 1.0 --package-id $PACKAGE_ID --sequence 3
+
+# Check commit readiness
+peer lifecycle chaincode checkcommitreadiness --channelID mychannel --name fingerchain --version 1.0 --sequence 3 --tls --cafile $PWD/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com
+
+# Commit chaincode
+peer lifecycle chaincode commit -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $PWD/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name fingerchain --version 1.0 --sequence 3 --peerAddresses localhost:7051 --tlsRootCertFiles $PWD/organizations/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem --peerAddresses localhost:9051 --tlsRootCertFiles $PWD/organizations/peerOrganizations/org2.example.com/tlsca/tlsca.org2.example.com-cert.pem
+
+# Prompt to start IPFS daemon
+echo "Please run 'ipfs daemon' in another terminal"

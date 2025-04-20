@@ -1,0 +1,5 @@
+node_modules/
+wallet/
+*.log
+__pycache__/
+*.pyc
